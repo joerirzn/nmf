@@ -1,0 +1,868 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>New Music Friday - Video Generator</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg: #0a0a0a;
+    --surface: #111111;
+    --border: #1e1e1e;
+    --border-hover: #2a2a2a;
+    --text: #ffffff;
+    --muted: #555;
+    --accent: #3c8fff;
+    --accent-glow: rgba(60, 143, 255, 0.10);
+    --success: #22c55e;
+    --success-glow: rgba(34, 197, 94, 0.10);
+  }
+
+  html, body { height: 100%; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    padding: 32px 40px 40px;
+  }
+
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 32px;
+    flex-wrap: wrap;
+    gap: 16px;
+  }
+
+  h1 {
+    font-size: 26px;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    line-height: 1.1;
+  }
+
+  .specs { display: flex; gap: 6px; align-items: center; }
+
+  .spec-tag {
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 4px 10px;
+    border-radius: 20px;
+  }
+
+  .main {
+    display: grid;
+    grid-template-columns: 1fr 380px;
+    gap: 20px;
+    flex: 1;
+    min-height: 0;
+    align-items: start;
+  }
+
+  .preview-area {
+    width: 100%;
+    border-radius: 16px;
+    background: var(--surface);
+    border: 1.5px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 32px;
+    min-height: 860px;
+  }
+
+  .preview-stage {
+    position: relative;
+    width: 480px;
+    max-width: 100%;
+  }
+
+  canvas#previewCanvas {
+    width: 100%;
+    border-radius: 4px;
+    display: block;
+    background: #000;
+  }
+
+  video#resultVideo {
+    width: 100%;
+    border-radius: 4px;
+    display: none;
+  }
+
+  .sidebar {
+    background: var(--surface);
+    border: 1.5px solid var(--border);
+    border-radius: 16px;
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+    overflow-y: auto;
+    max-height: calc(100vh - 130px);
+  }
+
+  .sb-section { display: flex; flex-direction: column; gap: 10px; }
+
+  .section-label {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .upload-zone {
+    border: 1.5px dashed var(--border);
+    border-radius: 10px;
+    padding: 18px;
+    text-align: center;
+    cursor: pointer;
+    transition: 0.15s;
+    font-size: 13px;
+    color: var(--muted);
+  }
+
+  .upload-zone:hover {
+    border-color: var(--accent);
+    background: var(--accent-glow);
+    color: var(--text);
+  }
+
+  .upload-zone.filled {
+    border-style: solid;
+    border-color: var(--border-hover);
+    color: var(--text);
+  }
+
+  .field { display: flex; flex-direction: column; gap: 6px; }
+
+  label {
+    font-size: 12px;
+    color: var(--muted);
+    font-weight: 500;
+  }
+
+  input[type="text"], input[type="number"], input[type="date"], select {
+    background: #0d0d0d;
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 9px 11px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-family: inherit;
+    outline: none;
+    transition: 0.15s;
+  }
+
+  input[type="date"] { color-scheme: dark; }
+
+  select { cursor: pointer; }
+
+  input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus, select:focus {
+    border-color: var(--accent);
+    background: var(--accent-glow);
+  }
+
+  .row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+  .hint { font-size: 11px; color: var(--muted); line-height: 1.4; }
+
+  audio { width: 100%; height: 32px; margin-top: 4px; }
+
+  #waveformWrap { display: flex; flex-direction: column; }
+
+  #waveform {
+    background: #0d0d0d;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 10px;
+    overflow-x: auto;
+  }
+
+  .btn {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    padding: 12px 16px;
+    border-radius: 9px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: 0.15s;
+    font-family: inherit;
+  }
+
+  .btn:hover { opacity: 0.88; }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .btn-ghost {
+    background: transparent;
+    color: var(--text);
+    border: 1px solid var(--border);
+    padding: 12px 16px;
+    border-radius: 9px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: inherit;
+    transition: 0.15s;
+  }
+
+  .btn-ghost:hover { border-color: var(--border-hover); background: var(--surface); }
+
+  .progress-wrap {
+    display: none;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .progress-bar-bg {
+    height: 6px;
+    background: var(--border);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+
+  .progress-bar-fill {
+    height: 100%;
+    width: 0%;
+    background: var(--accent);
+    transition: width 0.2s;
+  }
+
+  .progress-label { font-size: 12px; color: var(--muted); }
+
+  .success-card {
+    display: none;
+    background: var(--success-glow);
+    border: 1px solid var(--success);
+    border-radius: 10px;
+    padding: 14px;
+    font-size: 13px;
+    gap: 10px;
+    flex-direction: column;
+  }
+
+  .info-card {
+    background: #0d0d0d;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 14px;
+    font-size: 12px;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+
+  .audio-bar {
+    margin-top: 20px;
+    background: var(--surface);
+    border: 1.5px solid var(--border);
+    border-radius: 16px;
+    padding: 20px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .audio-bar-header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+
+  .audio-bar-header .section-label { white-space: nowrap; }
+
+  .audio-bar-header .upload-zone {
+    flex: 1;
+    padding: 10px 16px;
+  }
+
+  .audio-bar-controls {
+    display: flex;
+    align-items: flex-end;
+    gap: 16px;
+  }
+
+  .audio-bar-controls .btn-ghost {
+    white-space: nowrap;
+    margin-bottom: 1px;
+  }
+
+  .audio-bar-controls .field { flex: 0 0 140px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>New Music Friday - Video Generator</h1>
+  </div>
+  <div class="specs">
+    <span class="spec-tag">1080 × 1440</span>
+    <span class="spec-tag">MP4</span>
+    <span class="spec-tag">Square artwork + audio snippet</span>
+  </div>
+</header>
+
+<div class="main">
+  <div class="preview-area">
+    <div class="preview-stage">
+      <canvas id="previewCanvas" width="1080" height="1440"></canvas>
+      <video id="resultVideo" controls></video>
+    </div>
+  </div>
+
+  <div class="sidebar">
+
+    <div class="sb-section">
+      <div class="section-label">Artwork</div>
+      <div class="upload-zone" id="artworkZone">Drop or click to upload cover (square crop applied automatically)</div>
+      <input type="file" id="artworkUpload" accept="image/*" style="display:none">
+    </div>
+
+    <div class="sb-section">
+      <div class="section-label">Release info</div>
+      <div class="field">
+        <label>Artist name</label>
+        <input type="text" id="artistName" placeholder="Artist Name">
+      </div>
+      <div class="field">
+        <label>Track title</label>
+        <input type="text" id="trackTitle" placeholder="Track Title">
+      </div>
+      <div class="hint">Automatically filled from the artwork filename (<code>Artist Name - Track Title.jpg</code>) — still editable.</div>
+    </div>
+
+    <div class="sb-section">
+      <div class="row-2">
+        <div class="field">
+          <label>Label name</label>
+          <select id="labelName">
+            <option value="Spinnin' Records">Spinnin' Records</option>
+            <option value="Spinnin' Deep">Spinnin' Deep</option>
+            <option value="Musical Freedom">Musical Freedom</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Date</label>
+          <input type="date" id="releaseDate">
+        </div>
+      </div>
+    </div>
+
+    <div class="sb-section">
+      <button class="btn" id="exportBtn" disabled>Generate video</button>
+      <div class="progress-wrap" id="progressWrap">
+        <div class="progress-bar-bg"><div class="progress-bar-fill" id="progressFill"></div></div>
+        <div class="progress-label" id="progressLabel">Loading ffmpeg…</div>
+      </div>
+      <div class="success-card" id="successCard">
+        <div>Video ready.</div>
+        <button class="btn-ghost" id="downloadBtn">Download MP4</button>
+      </div>
+    </div>
+
+    <div class="info-card">Upload a square-friendly cover and an audio snippet to enable export. The bottom bar and text render exactly as previewed on the left.</div>
+
+  </div>
+</div>
+
+<div class="audio-bar">
+  <div class="audio-bar-header">
+    <div class="section-label">Audio snippet</div>
+    <div class="upload-zone" id="audioZone">Drop or click to upload audio</div>
+    <input type="file" id="audioUpload" accept="audio/*" style="display:none">
+  </div>
+
+  <div id="waveformWrap" style="display:none">
+    <div id="waveform"></div>
+  </div>
+
+  <div class="audio-bar-controls">
+    <button class="btn-ghost" id="playPauseBtn" type="button">▶ Preview selection</button>
+    <div class="field">
+      <label>Start (sec)</label>
+      <input type="number" id="startTime" value="0" min="0" step="1">
+    </div>
+    <div class="field">
+      <label>Duration (sec)</label>
+      <input type="number" id="duration" value="30" min="1" step="1">
+    </div>
+  </div>
+  <div class="hint">Drag the highlighted region on the waveform to pick the snippet — the fields above update automatically, and you can also type exact values.</div>
+</div>
+
+<script type="module">
+import { FFmpeg } from 'https://unpkg.com/@ffmpeg/ffmpeg@0.12.15/dist/esm/index.js';
+import { toBlobURL, fetchFile } from 'https://unpkg.com/@ffmpeg/util@0.12.2/dist/esm/index.js';
+import WaveSurfer from 'https://unpkg.com/wavesurfer.js@7.12.10/dist/wavesurfer.esm.js';
+import RegionsPlugin from 'https://unpkg.com/wavesurfer.js@7.12.10/dist/plugins/regions.esm.js';
+
+const state = {
+  artworkImg: null,
+  artworkFile: null,
+  audioFile: null
+};
+
+const canvas = document.getElementById('previewCanvas');
+const ctx = canvas.getContext('2d');
+const resultVideo = document.getElementById('resultVideo');
+
+const artworkZone = document.getElementById('artworkZone');
+const artworkUpload = document.getElementById('artworkUpload');
+const audioZone = document.getElementById('audioZone');
+const audioUpload = document.getElementById('audioUpload');
+const waveformWrap = document.getElementById('waveformWrap');
+const playPauseBtn = document.getElementById('playPauseBtn');
+
+const artistNameInput = document.getElementById('artistName');
+const trackTitleInput = document.getElementById('trackTitle');
+const labelNameInput = document.getElementById('labelName');
+const releaseDateInput = document.getElementById('releaseDate');
+const startTimeInput = document.getElementById('startTime');
+const durationInput = document.getElementById('duration');
+
+const exportBtn = document.getElementById('exportBtn');
+const progressWrap = document.getElementById('progressWrap');
+const progressFill = document.getElementById('progressFill');
+const progressLabel = document.getElementById('progressLabel');
+const successCard = document.getElementById('successCard');
+const downloadBtn = document.getElementById('downloadBtn');
+
+let ffmpeg = null;
+let wavesurfer = null;
+let wsRegions = null;
+let activeRegion = null;
+let outputUrl = null;
+
+// ---------- Drawing ----------
+const FONT_STACK = "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif";
+const TEXT_MAX_WIDTH = 960; // 1080 - 60px margin on each side
+const LINE_HEIGHT = 48;
+const MONTH_ABBR = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+
+// Converts a native <input type="date"> value ("YYYY-MM-DD") into "01JUL" style.
+function formatDateShort(isoStr) {
+  if (!isoStr) return '';
+  const [y, m, d] = isoStr.split('-').map(Number);
+  if (!y || !m || !d) return '';
+  return `${String(d).padStart(2, '0')}${MONTH_ABBR[m - 1]}`;
+}
+
+// Wraps text onto multiple lines (by word) so it never overflows maxWidth,
+// keeping the font size fixed instead of shrinking it.
+function wrapText(text, maxWidth, font) {
+  if (!text) return [];
+  ctx.font = font;
+  const words = text.split(' ');
+  const lines = [];
+  let current = '';
+  for (const word of words) {
+    const test = current ? `${current} ${word}` : word;
+    if (ctx.measureText(test).width <= maxWidth || !current) {
+      current = test;
+    } else {
+      lines.push(current);
+      current = word;
+    }
+  }
+  if (current) lines.push(current);
+  return lines;
+}
+
+// Shrinks font size until the text fits maxWidth, down to a minimum size.
+function fitFontSize(text, maxWidth, startSize, weight, minSize) {
+  let size = startSize;
+  while (size > minSize) {
+    ctx.font = `${weight} ${size}px ${FONT_STACK}`;
+    if (ctx.measureText(text).width <= maxWidth) break;
+    size -= 2;
+  }
+  return size;
+}
+
+// Measures the real rendered ascent/descent of a text+font combo so padding
+// can be calculated from actual glyph bounds instead of guessed pixel values.
+function getAscent(text, font) {
+  ctx.font = font;
+  const m = ctx.measureText(text || 'M');
+  if (m.actualBoundingBoxAscent) return m.actualBoundingBoxAscent;
+  const sizeMatch = font.match(/(\d+)px/);
+  const size = sizeMatch ? parseInt(sizeMatch[1], 10) : 40;
+  return size * 0.73;
+}
+
+function getDescent(text, font) {
+  ctx.font = font;
+  const m = ctx.measureText(text || 'M');
+  if (m.actualBoundingBoxDescent !== undefined) return m.actualBoundingBoxDescent;
+  return 0;
+}
+
+function drawFrame() {
+  ctx.clearRect(0, 0, 1080, 1440);
+
+  // Top square artwork area
+  ctx.fillStyle = '#1a1a1a';
+  ctx.fillRect(0, 0, 1080, 1080);
+
+  if (state.artworkImg) {
+    const img = state.artworkImg;
+    const size = Math.min(img.width, img.height);
+    const sx = (img.width - size) / 2;
+    const sy = (img.height - size) / 2;
+    ctx.drawImage(img, sx, sy, size, size, 0, 0, 1080, 1080);
+  }
+
+  // Bottom black bar
+  ctx.fillStyle = '#000000';
+  ctx.fillRect(0, 1080, 1080, 360);
+
+  const artist = (artistNameInput.value.trim() || 'Artist Name').toUpperCase();
+  const track = (trackTitleInput.value.trim() || 'Track Title').toUpperCase();
+  const labelName = labelNameInput.value.trim().toUpperCase();
+  const date = formatDateShort(releaseDateInput.value);
+
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillStyle = '#ffffff';
+
+  // Artist name (bold) and track title (regular) — wrap onto extra lines
+  // instead of shrinking when the text is too long for one line.
+  const artistFont = `700 52px ${FONT_STACK}`;
+  const trackFont = `400 44px ${FONT_STACK}`;
+  const artistLines = wrapText(artist, TEXT_MAX_WIDTH, artistFont);
+  const trackLines = wrapText(track, TEXT_MAX_WIDTH, trackFont);
+
+  const BAR_TOP = 1080;
+  const BAR_BOTTOM = 1440;
+  const INNER_PADDING = 56; // identical padding top and bottom inside the bar
+
+  // Top padding is measured against the actual ascent of whichever line
+  // renders first (artist, or track if artist is empty).
+  const firstLineText = artistLines[0] || trackLines[0] || '';
+  const firstLineFont = artistLines[0] ? artistFont : trackFont;
+  const topAscent = getAscent(firstLineText, firstLineFont);
+
+  let y = BAR_TOP + INNER_PADDING + topAscent;
+  ctx.font = artistFont;
+  artistLines.forEach(line => {
+    ctx.fillText(line, 60, y);
+    y += LINE_HEIGHT;
+  });
+
+  ctx.font = trackFont;
+  trackLines.forEach(line => {
+    ctx.fillText(line, 60, y);
+    y += LINE_HEIGHT;
+  });
+
+  // Label name (bottom left) with accent tick — narrower max width so it
+  // never collides with the date on the right
+  const labelSize = fitFontSize(labelName, 700, 26, 600, 16);
+  const labelFont = `600 ${labelSize}px ${FONT_STACK}`;
+  const dateFont = `600 26px ${FONT_STACK}`;
+
+  // Bottom padding uses the same INNER_PADDING, measured against the
+  // descent of the bottom row so it visually mirrors the top padding.
+  const bottomDescent = Math.max(getDescent(labelName, labelFont), getDescent(date, dateFont));
+  const bottomBaseline = BAR_BOTTOM - INNER_PADDING - bottomDescent;
+  const labelAscent = getAscent(labelName, labelFont);
+
+  ctx.font = labelFont;
+  ctx.fillRect(60, bottomBaseline - labelAscent, 6, labelAscent);
+  ctx.fillText(labelName, 80, bottomBaseline);
+
+  // Date (bottom right)
+  ctx.font = dateFont;
+  const dateWidth = ctx.measureText(date).width;
+  ctx.fillText(date, 1020 - dateWidth, bottomBaseline);
+
+  checkReady();
+}
+
+function checkReady() {
+  exportBtn.disabled = !(state.artworkImg && state.audioFile);
+}
+
+// ---------- Filename parsing (same logic as banner generator) ----------
+function parseFilename(filename) {
+  const name = filename.replace(/\.[^/.]+$/, ''); // strip extension
+  if (name.includes(' - ')) {
+    const idx = name.indexOf(' - ');
+    return {
+      artist: name.slice(0, idx).trim(),
+      title: name.slice(idx + 3).trim()
+    };
+  }
+  return null;
+}
+
+// ---------- Artwork upload ----------
+function loadArtwork(file) {
+  state.artworkFile = file;
+  const url = URL.createObjectURL(file);
+  const img = new Image();
+  img.onload = () => {
+    state.artworkImg = img;
+    artworkZone.textContent = file.name;
+    artworkZone.classList.add('filled');
+    drawFrame();
+  };
+  img.src = url;
+
+  const parsed = parseFilename(file.name);
+  if (parsed) {
+    artistNameInput.value = parsed.artist;
+    trackTitleInput.value = parsed.title;
+  }
+}
+
+artworkZone.addEventListener('click', () => artworkUpload.click());
+artworkUpload.addEventListener('change', e => {
+  if (e.target.files[0]) loadArtwork(e.target.files[0]);
+});
+artworkZone.addEventListener('dragover', e => e.preventDefault());
+artworkZone.addEventListener('drop', e => {
+  e.preventDefault();
+  if (e.dataTransfer.files[0]) loadArtwork(e.dataTransfer.files[0]);
+});
+
+// ---------- Audio upload + waveform ----------
+function loadAudio(file) {
+  state.audioFile = file;
+  audioZone.textContent = file.name;
+  audioZone.classList.add('filled');
+  waveformWrap.style.display = 'flex';
+  playPauseBtn.textContent = '▶ Preview selection';
+
+  if (wavesurfer) {
+    wavesurfer.destroy();
+    wavesurfer = null;
+    wsRegions = null;
+    activeRegion = null;
+  }
+
+  wsRegions = RegionsPlugin.create();
+  wavesurfer = WaveSurfer.create({
+    container: '#waveform',
+    waveColor: '#2a2a2a',
+    progressColor: '#3c8fff',
+    cursorColor: '#ffffff',
+    height: 64,
+    barWidth: 2,
+    barGap: 1,
+    barRadius: 2,
+    url: URL.createObjectURL(file),
+    plugins: [wsRegions]
+  });
+
+  wavesurfer.on('decode', () => {
+    const audioDuration = wavesurfer.getDuration();
+    const start = Math.min(Math.max(0, parseFloat(startTimeInput.value) || 0), Math.max(0, audioDuration - 1));
+    const dur = Math.max(1, parseFloat(durationInput.value) || 30);
+    const end = Math.min(audioDuration, start + dur);
+
+    activeRegion = wsRegions.addRegion({
+      start,
+      end,
+      color: 'rgba(60, 143, 255, 0.25)',
+      drag: true,
+      resize: true
+    });
+
+    startTimeInput.value = Math.round(activeRegion.start);
+    durationInput.value = Math.round(activeRegion.end - activeRegion.start);
+  });
+
+  // Region dragged/resized on the waveform → reflect in the number fields
+  wsRegions.on('region-updated', region => {
+    startTimeInput.value = Math.round(region.start * 10) / 10;
+    durationInput.value = Math.round((region.end - region.start) * 10) / 10;
+  });
+
+  playPauseBtn.onclick = () => {
+    if (!activeRegion) return;
+    if (wavesurfer.isPlaying()) {
+      wavesurfer.pause();
+      playPauseBtn.textContent = '▶ Preview selection';
+    } else {
+      activeRegion.play();
+      playPauseBtn.textContent = '⏸ Pause';
+    }
+  };
+  wavesurfer.on('pause', () => { playPauseBtn.textContent = '▶ Preview selection'; });
+  wavesurfer.on('finish', () => { playPauseBtn.textContent = '▶ Preview selection'; });
+
+  checkReady();
+}
+
+// Number inputs → move/resize the region on the waveform to match
+function syncRegionFromInputs() {
+  if (!activeRegion) return;
+  const start = Math.max(0, parseFloat(startTimeInput.value) || 0);
+  const dur = Math.max(1, parseFloat(durationInput.value) || 30);
+  activeRegion.setOptions({ start, end: start + dur });
+}
+startTimeInput.addEventListener('change', syncRegionFromInputs);
+durationInput.addEventListener('change', syncRegionFromInputs);
+
+audioZone.addEventListener('click', () => audioUpload.click());
+audioUpload.addEventListener('change', e => {
+  if (e.target.files[0]) loadAudio(e.target.files[0]);
+});
+audioZone.addEventListener('dragover', e => e.preventDefault());
+audioZone.addEventListener('drop', e => {
+  e.preventDefault();
+  if (e.dataTransfer.files[0]) loadAudio(e.dataTransfer.files[0]);
+});
+
+// ---------- Live text updates ----------
+[artistNameInput, trackTitleInput, labelNameInput, releaseDateInput].forEach(el => {
+  el.addEventListener('input', drawFrame);
+  el.addEventListener('change', drawFrame);
+});
+
+// ---------- FFmpeg export ----------
+const CORE_SOURCES = [
+  'https://unpkg.com/@ffmpeg/core@0.12.10/dist/esm',
+  'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/esm'
+];
+
+async function ensureFFmpeg() {
+  if (ffmpeg) return ffmpeg;
+  ffmpeg = new FFmpeg();
+  ffmpeg.on('log', ({ message }) => console.log('[ffmpeg]', message));
+  ffmpeg.on('progress', ({ progress }) => {
+    const pct = Math.min(100, Math.round(progress * 100));
+    progressFill.style.width = pct + '%';
+    progressLabel.textContent = `Rendering… ${pct}%`;
+  });
+
+  let lastErr = null;
+  for (const baseURL of CORE_SOURCES) {
+    try {
+      progressLabel.textContent = 'Loading ffmpeg…';
+      await ffmpeg.load({
+        coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
+        wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm')
+      });
+      return ffmpeg;
+    } catch (err) {
+      console.error('ffmpeg load failed from', baseURL, err);
+      lastErr = err;
+    }
+  }
+  throw new Error('Could not load ffmpeg core: ' + (lastErr?.message || lastErr));
+}
+
+exportBtn.addEventListener('click', async () => {
+  exportBtn.disabled = true;
+  successCard.style.display = 'none';
+  progressWrap.style.display = 'flex';
+  progressLabel.textContent = 'Loading ffmpeg…';
+  progressFill.style.width = '0%';
+
+  try {
+    const inst = await ensureFFmpeg();
+
+    // Export current canvas frame as PNG
+    const frameBlob = await new Promise(res => canvas.toBlob(res, 'image/png'));
+    const frameData = await fetchFile(frameBlob);
+    await inst.writeFile('frame.png', frameData);
+
+    const audioData = await fetchFile(state.audioFile);
+    const audioExt = state.audioFile.name.split('.').pop() || 'mp3';
+    await inst.writeFile(`audio.${audioExt}`, audioData);
+
+    const start = Math.max(0, parseFloat(startTimeInput.value) || 0);
+    const dur = Math.max(1, parseFloat(durationInput.value) || 30);
+
+    progressLabel.textContent = 'Rendering…';
+
+    const fadeLen = Math.min(0.4, dur / 4); // short fade, clamped for very short clips
+
+    await inst.exec([
+      '-loop', '1',
+      '-i', 'frame.png',
+      '-ss', String(start),
+      '-i', `audio.${audioExt}`,
+      '-t', String(dur),
+      '-af', `afade=t=in:st=0:d=${fadeLen},afade=t=out:st=${dur - fadeLen}:d=${fadeLen}`,
+      '-c:v', 'libx264',
+      '-tune', 'stillimage',
+      '-c:a', 'aac',
+      '-b:a', '192k',
+      '-pix_fmt', 'yuv420p',
+      '-shortest',
+      'output.mp4'
+    ]);
+
+    const data = await inst.readFile('output.mp4');
+    const blob = new Blob([data.buffer], { type: 'video/mp4' });
+    outputUrl = URL.createObjectURL(blob);
+
+    resultVideo.src = outputUrl;
+    resultVideo.style.display = 'block';
+    canvas.style.display = 'none';
+
+    progressWrap.style.display = 'none';
+    successCard.style.display = 'flex';
+  } catch (err) {
+    console.error(err);
+    const msg = err?.message || 'unknown, check console.';
+    if (msg.includes("origin 'null'") || location.protocol === 'file:') {
+      progressLabel.textContent = 'This file must be served via http(s), not opened directly (file://). Run a local server or host it, then reload.';
+    } else {
+      progressLabel.textContent = 'Error: ' + msg;
+    }
+  } finally {
+    exportBtn.disabled = false;
+  }
+});
+
+downloadBtn.addEventListener('click', () => {
+  if (!outputUrl) return;
+  const a = document.createElement('a');
+  a.href = outputUrl;
+  const artist = artistNameInput.value.trim() || 'artist';
+  const track = trackTitleInput.value.trim() || 'track';
+  a.download = `${artist} - ${track} - Out Now.mp4`;
+  a.click();
+});
+
+// ---------- Default date: upcoming Friday ----------
+function getUpcomingFriday() {
+  const now = new Date();
+  const diff = (5 - now.getDay() + 7) % 7; // 0 if today is already Friday
+  const friday = new Date(now);
+  friday.setDate(now.getDate() + diff);
+  return friday;
+}
+
+function toISODate(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+releaseDateInput.value = toISODate(getUpcomingFriday());
+
+drawFrame();
+</script>
+
+</body>
+</html>
