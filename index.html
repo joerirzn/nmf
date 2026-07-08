@@ -321,6 +321,81 @@
     overflow-x: auto;
   }
 
+  /* ── Count badge / queue ── */
+  .count-badge {
+    color: var(--accent);
+    font-weight: 600;
+  }
+
+  .queue-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-height: 260px;
+    overflow-y: auto;
+  }
+
+  .queue-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    cursor: pointer;
+    transition: 0.15s;
+  }
+
+  .queue-item:hover { border-color: var(--border-hover); }
+
+  .queue-item.active {
+    border-color: var(--accent);
+    background: var(--accent-glow);
+  }
+
+  .queue-item-thumb {
+    width: 34px;
+    height: 34px;
+    border-radius: 6px;
+    object-fit: cover;
+    background: var(--border);
+    flex-shrink: 0;
+  }
+
+  .queue-item-info {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .queue-item-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--white);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .queue-item-sub {
+    font-size: 11px;
+    color: var(--text-dim);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .queue-item-status {
+    font-size: 10px;
+    font-weight: 600;
+    flex-shrink: 0;
+    color: var(--text-dim);
+  }
+
+  .queue-item-status.rendering { color: var(--accent); }
+  .queue-item-status.done { color: var(--success); }
+  .queue-item-status.error { color: #ff5c5c; }
+
   @media (max-width: 900px) {
     .layout { grid-template-columns: 1fr; padding: 16px; }
     .app-header { padding: 16px; }
@@ -351,13 +426,26 @@
   <div class="sidebar">
 
     <div class="panel">
-      <div class="panel-label">Artwork</div>
-      <div class="drop-zone" id="artworkZone">Drop or click to upload cover (square crop applied automatically)</div>
-      <input type="file" id="artworkUpload" accept="image/*" style="display:none">
+      <div class="panel-label">Artwork <span id="artworkCount" class="count-badge"></span></div>
+      <div class="drop-zone" id="artworkZone">Drop or click to upload cover(s) — multiple supported (square crop applied automatically)</div>
+      <input type="file" id="artworkUpload" accept="image/*" multiple style="display:none">
     </div>
 
     <div class="panel">
-      <div class="panel-label">Release info</div>
+      <div class="panel-label">Audio snippet <span id="audioCount" class="count-badge"></span></div>
+      <div class="drop-zone" id="audioZone">Drop or click to upload audio — multiple supported</div>
+      <input type="file" id="audioUpload" accept="audio/*" multiple style="display:none">
+      <div class="hint">Files are paired by upload order: 1st artwork + 1st audio, 2nd + 2nd, etc.</div>
+    </div>
+
+    <div class="panel" id="queuePanel" style="display:none">
+      <div class="panel-label">Queue <span id="queueCount" class="count-badge"></span></div>
+      <div class="queue-list" id="queueList"></div>
+      <button class="btn-ghost" id="clearQueueBtn" type="button">Clear all</button>
+    </div>
+
+    <div class="panel" id="editPanel" style="display:none">
+      <div class="panel-label" id="editingLabel">Editing item 1</div>
       <div class="field">
         <label>Artist name</label>
         <input type="text" id="artistName" placeholder="Artist Name">
@@ -367,36 +455,20 @@
         <input type="text" id="trackTitle" placeholder="Track Title">
       </div>
       <div class="hint">Automatically filled from the artwork filename (<code>Artist Name - Track Title.jpg</code>) — still editable.</div>
-    </div>
 
-    <div class="panel">
-      <div class="row-2">
-        <div class="field">
-          <label>Label name</label>
-          <select id="labelName">
-            <option value="Spinnin' Records">Spinnin' Records</option>
-            <option value="Spinnin' Deep">Spinnin' Deep</option>
-            <option value="Musical Freedom">Musical Freedom</option>
-          </select>
-        </div>
-        <div class="field">
-          <label>Date</label>
-          <input type="date" id="releaseDate">
-        </div>
+      <div class="field">
+        <label>Label name</label>
+        <select id="labelName">
+          <option value="Spinnin' Records">Spinnin' Records</option>
+          <option value="Spinnin' Deep">Spinnin' Deep</option>
+          <option value="Musical Freedom">Musical Freedom</option>
+        </select>
       </div>
-    </div>
-
-    <div class="panel">
-      <div class="panel-label">Audio snippet</div>
-      <div class="drop-zone" id="audioZone">Drop or click to upload audio</div>
-      <input type="file" id="audioUpload" accept="audio/*" style="display:none">
 
       <div id="waveformWrap" style="display:none">
         <div id="waveform"></div>
       </div>
-
       <button class="btn-ghost" id="playPauseBtn" type="button">▶ Preview selection</button>
-
       <div class="row-2">
         <div class="field">
           <label>Start (sec)</label>
@@ -407,38 +479,50 @@
           <input type="number" id="duration" value="30" min="1" step="1">
         </div>
       </div>
-      <div class="hint">Drag the highlighted region on the waveform to pick the snippet — the fields above update automatically, and you can also type exact values.</div>
+      <div class="hint">Drag the highlighted region on the waveform to pick this item's snippet.</div>
     </div>
 
     <div class="panel">
+      <div class="field">
+        <label>Date</label>
+        <input type="date" id="releaseDate">
+      </div>
+      <div class="hint">Applies to every video in the batch. Label is set per video above.</div>
+    </div>
+
+    <div class="panel">
+      <div class="hint" id="engineStatus">⏳ Loading video engine…</div>
       <button class="btn" id="exportBtn" disabled>Generate video</button>
       <div class="progress-wrap" id="progressWrap">
         <div class="progress-bar-bg"><div class="progress-bar-fill" id="progressFill"></div></div>
         <div class="progress-label" id="progressLabel">Loading ffmpeg…</div>
       </div>
       <div class="success-card" id="successCard">
-        <div>Video ready.</div>
-        <button class="btn-ghost" id="downloadBtn">Download MP4</button>
+        <div id="successMessage">Video ready.</div>
+        <button class="btn-ghost" id="downloadBtn">Download ZIP</button>
       </div>
     </div>
 
-    <div class="info-card">Upload a square-friendly cover and an audio snippet to enable export. The bottom bar and text render exactly as previewed on the left.</div>
+    <div class="info-card">Upload square-friendly cover(s) and audio snippet(s) to enable export. The bottom bar and text render exactly as previewed on the left.</div>
 
   </div>
 </div>
 
 
+<script src="https://unpkg.com/jszip@3.10.1/dist/jszip.min.js"></script>
 <script type="module">
 import { FFmpeg } from 'https://unpkg.com/@ffmpeg/ffmpeg@0.12.15/dist/esm/index.js';
 import { toBlobURL, fetchFile } from 'https://unpkg.com/@ffmpeg/util@0.12.2/dist/esm/index.js';
 import WaveSurfer from 'https://unpkg.com/wavesurfer.js@7.12.10/dist/wavesurfer.esm.js';
 import RegionsPlugin from 'https://unpkg.com/wavesurfer.js@7.12.10/dist/plugins/regions.esm.js';
 
-const state = {
-  artworkImg: null,
-  artworkFile: null,
-  audioFile: null
-};
+// ---------- Batch state ----------
+// rawArtworks / rawAudios grow as files are added; items are derived pairs
+// (by upload order) that preserve per-item edits across re-uploads.
+let rawArtworks = []; // { file, img }
+let rawAudios = [];   // { file }
+let items = [];        // { artwork, audio, artist, track, start, duration, audioDuration, status, outputBlob }
+let activeIndex = -1;
 
 const canvas = document.getElementById('previewCanvas');
 const ctx = canvas.getContext('2d');
@@ -446,8 +530,18 @@ const resultVideo = document.getElementById('resultVideo');
 
 const artworkZone = document.getElementById('artworkZone');
 const artworkUpload = document.getElementById('artworkUpload');
+const artworkCountEl = document.getElementById('artworkCount');
 const audioZone = document.getElementById('audioZone');
 const audioUpload = document.getElementById('audioUpload');
+const audioCountEl = document.getElementById('audioCount');
+
+const queuePanel = document.getElementById('queuePanel');
+const queueList = document.getElementById('queueList');
+const queueCountEl = document.getElementById('queueCount');
+const clearQueueBtn = document.getElementById('clearQueueBtn');
+
+const editPanel = document.getElementById('editPanel');
+const editingLabel = document.getElementById('editingLabel');
 const waveformWrap = document.getElementById('waveformWrap');
 const playPauseBtn = document.getElementById('playPauseBtn');
 
@@ -463,13 +557,16 @@ const progressWrap = document.getElementById('progressWrap');
 const progressFill = document.getElementById('progressFill');
 const progressLabel = document.getElementById('progressLabel');
 const successCard = document.getElementById('successCard');
+const successMessage = document.getElementById('successMessage');
 const downloadBtn = document.getElementById('downloadBtn');
+const engineStatus = document.getElementById('engineStatus');
 
 let ffmpeg = null;
 let wavesurfer = null;
 let wsRegions = null;
 let activeRegion = null;
 let outputUrl = null;
+let outputFilename = '';
 
 // ---------- Drawing ----------
 const FONT_STACK = "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif";
@@ -535,46 +632,41 @@ function getDescent(text, font) {
   return 0;
 }
 
-function drawFrame() {
+// Renders one frame onto the shared canvas from explicit data — used both
+// for the live preview (active item) and for each item during batch export.
+function paintFrame({ artist, track, labelName, dateISO, img }) {
   ctx.clearRect(0, 0, 1080, 1440);
 
-  // Top square artwork area
   ctx.fillStyle = '#1a1a1a';
   ctx.fillRect(0, 0, 1080, 1080);
 
-  if (state.artworkImg) {
-    const img = state.artworkImg;
+  if (img) {
     const size = Math.min(img.width, img.height);
     const sx = (img.width - size) / 2;
     const sy = (img.height - size) / 2;
     ctx.drawImage(img, sx, sy, size, size, 0, 0, 1080, 1080);
   }
 
-  // Bottom black bar
   ctx.fillStyle = '#000000';
   ctx.fillRect(0, 1080, 1080, 360);
 
-  const artist = (artistNameInput.value.trim() || 'Artist Name').toUpperCase();
-  const track = (trackTitleInput.value.trim() || 'Track Title').toUpperCase();
-  const labelName = labelNameInput.value.trim().toUpperCase();
-  const date = formatDateShort(releaseDateInput.value);
+  const artistText = (artist || 'Artist Name').toUpperCase();
+  const trackText = (track || 'Track Title').toUpperCase();
+  const labelText = (labelName || '').toUpperCase();
+  const dateText = formatDateShort(dateISO);
 
   ctx.textBaseline = 'alphabetic';
   ctx.fillStyle = '#ffffff';
 
-  // Artist name (bold) and track title (regular) — wrap onto extra lines
-  // instead of shrinking when the text is too long for one line.
   const artistFont = `700 52px ${FONT_STACK}`;
   const trackFont = `400 44px ${FONT_STACK}`;
-  const artistLines = wrapText(artist, TEXT_MAX_WIDTH, artistFont);
-  const trackLines = wrapText(track, TEXT_MAX_WIDTH, trackFont);
+  const artistLines = wrapText(artistText, TEXT_MAX_WIDTH, artistFont);
+  const trackLines = wrapText(trackText, TEXT_MAX_WIDTH, trackFont);
 
   const BAR_TOP = 1080;
   const BAR_BOTTOM = 1440;
-  const INNER_PADDING = 56; // identical padding top and bottom inside the bar
+  const INNER_PADDING = 56;
 
-  // Top padding is measured against the actual ascent of whichever line
-  // renders first (artist, or track if artist is empty).
   const firstLineText = artistLines[0] || trackLines[0] || '';
   const firstLineFont = artistLines[0] ? artistFont : trackFont;
   const topAscent = getAscent(firstLineText, firstLineFont);
@@ -592,32 +684,39 @@ function drawFrame() {
     y += LINE_HEIGHT;
   });
 
-  // Label name (bottom left) with accent tick — narrower max width so it
-  // never collides with the date on the right
-  const labelSize = fitFontSize(labelName, 700, 26, 600, 16);
+  const labelSize = fitFontSize(labelText, 700, 26, 600, 16);
   const labelFont = `600 ${labelSize}px ${FONT_STACK}`;
   const dateFont = `600 26px ${FONT_STACK}`;
 
-  // Bottom padding uses the same INNER_PADDING, measured against the
-  // descent of the bottom row so it visually mirrors the top padding.
-  const bottomDescent = Math.max(getDescent(labelName, labelFont), getDescent(date, dateFont));
+  const bottomDescent = Math.max(getDescent(labelText, labelFont), getDescent(dateText, dateFont));
   const bottomBaseline = BAR_BOTTOM - INNER_PADDING - bottomDescent;
-  const labelAscent = getAscent(labelName, labelFont);
+  const labelAscent = getAscent(labelText, labelFont);
 
   ctx.font = labelFont;
   ctx.fillRect(60, bottomBaseline - labelAscent, 6, labelAscent);
-  ctx.fillText(labelName, 80, bottomBaseline);
+  ctx.fillText(labelText, 80, bottomBaseline);
 
-  // Date (bottom right)
   ctx.font = dateFont;
-  const dateWidth = ctx.measureText(date).width;
-  ctx.fillText(date, 1020 - dateWidth, bottomBaseline);
+  const dateWidth = ctx.measureText(dateText).width;
+  ctx.fillText(dateText, 1020 - dateWidth, bottomBaseline);
+}
 
+// Redraws the live preview from whichever item is currently active.
+function drawFrame() {
+  const item = items[activeIndex];
+  paintFrame({
+    artist: item?.artist?.trim(),
+    track: item?.track?.trim(),
+    labelName: item?.label,
+    dateISO: releaseDateInput.value,
+    img: item?.artwork?.img || null
+  });
   checkReady();
 }
 
 function checkReady() {
-  exportBtn.disabled = !(state.artworkImg && state.audioFile);
+  exportBtn.disabled = items.length === 0;
+  exportBtn.textContent = items.length > 1 ? `Generate ${items.length} videos` : 'Generate video';
 }
 
 // ---------- Filename parsing (same logic as banner generator) ----------
@@ -633,41 +732,169 @@ function parseFilename(filename) {
   return null;
 }
 
-// ---------- Artwork upload ----------
-function loadArtwork(file) {
-  state.artworkFile = file;
-  const url = URL.createObjectURL(file);
-  const img = new Image();
-  img.onload = () => {
-    state.artworkImg = img;
-    artworkZone.textContent = file.name;
-    artworkZone.classList.add('filled');
-    drawFrame();
-  };
-  img.src = url;
+// ---------- Pairing: rebuild items whenever artwork/audio lists change ----------
+function rebuildItems() {
+  const pairCount = Math.min(rawArtworks.length, rawAudios.length);
 
-  const parsed = parseFilename(file.name);
-  if (parsed) {
-    artistNameInput.value = parsed.artist;
-    trackTitleInput.value = parsed.title;
+  for (let i = items.length; i < pairCount; i++) {
+    const parsed = parseFilename(rawArtworks[i].file.name);
+    items.push({
+      artwork: rawArtworks[i],
+      audio: rawAudios[i],
+      artist: parsed?.artist || '',
+      track: parsed?.title || '',
+      label: "Spinnin' Records",
+      start: 0,
+      duration: 30,
+      audioDuration: null,
+      status: 'pending',
+      outputBlob: null
+    });
   }
+  if (items.length > pairCount) items.length = pairCount;
+
+  artworkCountEl.textContent = rawArtworks.length ? `(${rawArtworks.length})` : '';
+  audioCountEl.textContent = rawAudios.length ? `(${rawAudios.length})` : '';
+  queueCountEl.textContent = items.length ? `(${items.length})` : '';
+
+  queuePanel.style.display = items.length ? 'flex' : 'none';
+  editPanel.style.display = items.length ? 'flex' : 'none';
+
+  if (items.length === 0) {
+    activeIndex = -1;
+    waveformWrap.style.display = 'none';
+    if (wavesurfer) { wavesurfer.destroy(); wavesurfer = null; wsRegions = null; activeRegion = null; }
+  } else if (activeIndex === -1) {
+    setActive(items.length - 1);
+  } else if (activeIndex >= items.length) {
+    setActive(items.length - 1);
+  } else {
+    renderQueue();
+  }
+
+  drawFrame();
+}
+
+function setActive(index) {
+  activeIndex = index;
+  const item = items[index];
+  if (!item) return;
+
+  artistNameInput.value = item.artist;
+  trackTitleInput.value = item.track;
+  labelNameInput.value = item.label || "Spinnin' Records";
+  editingLabel.textContent = `Editing item ${index + 1} of ${items.length}`;
+
+  loadAudioForItem(item);
+  renderQueue();
+  drawFrame();
+}
+
+// ---------- Queue list rendering ----------
+function renderQueue() {
+  queueList.innerHTML = '';
+  items.forEach((item, i) => {
+    const row = document.createElement('div');
+    row.className = 'queue-item' + (i === activeIndex ? ' active' : '');
+
+    const thumb = document.createElement('img');
+    thumb.className = 'queue-item-thumb';
+    if (item.artwork.img) thumb.src = item.artwork.img.src;
+
+    const info = document.createElement('div');
+    info.className = 'queue-item-info';
+
+    const title = document.createElement('div');
+    title.className = 'queue-item-title';
+    title.textContent = `${item.artist || 'Artist'} - ${item.track || 'Track'}`;
+
+    const sub = document.createElement('div');
+    sub.className = 'queue-item-sub';
+    sub.textContent = item.audio.file.name;
+
+    info.appendChild(title);
+    info.appendChild(sub);
+
+    const status = document.createElement('div');
+    status.className = 'queue-item-status ' + item.status;
+    status.textContent = { pending: '', rendering: '…', done: '✓', error: '✕' }[item.status] || '';
+
+    row.appendChild(thumb);
+    row.appendChild(info);
+    row.appendChild(status);
+    row.addEventListener('click', () => setActive(i));
+
+    queueList.appendChild(row);
+  });
+}
+
+// ---------- Artwork upload (multi-file) ----------
+function addArtworkFiles(fileList) {
+  Array.from(fileList).forEach(file => {
+    const entry = { file, img: null };
+    rawArtworks.push(entry);
+    const img = new Image();
+    img.onload = () => {
+      entry.img = img;
+      renderQueue();
+      if (items[activeIndex]?.artwork === entry) drawFrame();
+    };
+    img.src = URL.createObjectURL(file);
+  });
+  artworkZone.textContent = `${rawArtworks.length} artwork${rawArtworks.length !== 1 ? 's' : ''} uploaded`;
+  artworkZone.classList.add('filled');
+  rebuildItems();
 }
 
 artworkZone.addEventListener('click', () => artworkUpload.click());
 artworkUpload.addEventListener('change', e => {
-  if (e.target.files[0]) loadArtwork(e.target.files[0]);
+  if (e.target.files.length) addArtworkFiles(e.target.files);
 });
 artworkZone.addEventListener('dragover', e => e.preventDefault());
 artworkZone.addEventListener('drop', e => {
   e.preventDefault();
-  if (e.dataTransfer.files[0]) loadArtwork(e.dataTransfer.files[0]);
+  if (e.dataTransfer.files.length) addArtworkFiles(e.dataTransfer.files);
 });
 
-// ---------- Audio upload + waveform ----------
-function loadAudio(file) {
-  state.audioFile = file;
-  audioZone.textContent = file.name;
+// ---------- Audio upload (multi-file) ----------
+function addAudioFiles(fileList) {
+  Array.from(fileList).forEach(file => rawAudios.push({ file }));
+  audioZone.textContent = `${rawAudios.length} audio file${rawAudios.length !== 1 ? 's' : ''} uploaded`;
   audioZone.classList.add('filled');
+  rebuildItems();
+}
+
+audioZone.addEventListener('click', () => audioUpload.click());
+audioUpload.addEventListener('change', e => {
+  if (e.target.files.length) addAudioFiles(e.target.files);
+});
+audioZone.addEventListener('dragover', e => e.preventDefault());
+audioZone.addEventListener('drop', e => {
+  e.preventDefault();
+  if (e.dataTransfer.files.length) addAudioFiles(e.dataTransfer.files);
+});
+
+// ---------- Clear batch ----------
+clearQueueBtn.addEventListener('click', () => {
+  rawArtworks = [];
+  rawAudios = [];
+  items = [];
+  activeIndex = -1;
+
+  artworkZone.textContent = 'Drop or click to upload cover(s) — multiple supported (square crop applied automatically)';
+  artworkZone.classList.remove('filled');
+  audioZone.textContent = 'Drop or click to upload audio — multiple supported';
+  audioZone.classList.remove('filled');
+  artworkUpload.value = '';
+  audioUpload.value = '';
+  artistNameInput.value = '';
+  trackTitleInput.value = '';
+
+  rebuildItems();
+});
+
+// ---------- Waveform for the active item ----------
+function loadAudioForItem(item) {
   waveformWrap.style.display = 'flex';
   playPauseBtn.textContent = '▶ Preview selection';
 
@@ -688,14 +915,15 @@ function loadAudio(file) {
     barWidth: 2,
     barGap: 1,
     barRadius: 2,
-    url: URL.createObjectURL(file),
+    url: URL.createObjectURL(item.audio.file),
     plugins: [wsRegions]
   });
 
   wavesurfer.on('decode', () => {
     const audioDuration = wavesurfer.getDuration();
-    const start = Math.min(Math.max(0, parseFloat(startTimeInput.value) || 0), Math.max(0, audioDuration - 1));
-    const dur = Math.max(1, parseFloat(durationInput.value) || 30);
+    item.audioDuration = audioDuration;
+    const start = Math.min(Math.max(0, item.start || 0), Math.max(0, audioDuration - 1));
+    const dur = Math.max(1, item.duration || 30);
     const end = Math.min(audioDuration, start + dur);
 
     activeRegion = wsRegions.addRegion({
@@ -708,12 +936,15 @@ function loadAudio(file) {
 
     startTimeInput.value = Math.round(activeRegion.start);
     durationInput.value = Math.round(activeRegion.end - activeRegion.start);
+    item.start = activeRegion.start;
+    item.duration = activeRegion.end - activeRegion.start;
   });
 
-  // Region dragged/resized on the waveform → reflect in the number fields
   wsRegions.on('region-updated', region => {
     startTimeInput.value = Math.round(region.start * 10) / 10;
     durationInput.value = Math.round((region.end - region.start) * 10) / 10;
+    item.start = region.start;
+    item.duration = region.end - region.start;
   });
 
   playPauseBtn.onclick = () => {
@@ -728,35 +959,45 @@ function loadAudio(file) {
   };
   wavesurfer.on('pause', () => { playPauseBtn.textContent = '▶ Preview selection'; });
   wavesurfer.on('finish', () => { playPauseBtn.textContent = '▶ Preview selection'; });
-
-  checkReady();
 }
 
-// Number inputs → move/resize the region on the waveform to match
+// Manual start/duration typing → move/resize the region, and store on the item
 function syncRegionFromInputs() {
-  if (!activeRegion) return;
+  if (!activeRegion || activeIndex === -1) return;
+  const item = items[activeIndex];
   const start = Math.max(0, parseFloat(startTimeInput.value) || 0);
   const dur = Math.max(1, parseFloat(durationInput.value) || 30);
   activeRegion.setOptions({ start, end: start + dur });
+  item.start = start;
+  item.duration = dur;
 }
 startTimeInput.addEventListener('change', syncRegionFromInputs);
 durationInput.addEventListener('change', syncRegionFromInputs);
 
-audioZone.addEventListener('click', () => audioUpload.click());
-audioUpload.addEventListener('change', e => {
-  if (e.target.files[0]) loadAudio(e.target.files[0]);
+// ---------- Editing the active item's artist/track ----------
+artistNameInput.addEventListener('input', () => {
+  if (activeIndex === -1) return;
+  items[activeIndex].artist = artistNameInput.value;
+  renderQueue();
+  drawFrame();
 });
-audioZone.addEventListener('dragover', e => e.preventDefault());
-audioZone.addEventListener('drop', e => {
-  e.preventDefault();
-  if (e.dataTransfer.files[0]) loadAudio(e.dataTransfer.files[0]);
+trackTitleInput.addEventListener('input', () => {
+  if (activeIndex === -1) return;
+  items[activeIndex].track = trackTitleInput.value;
+  renderQueue();
+  drawFrame();
 });
 
-// ---------- Live text updates ----------
-[artistNameInput, trackTitleInput, labelNameInput, releaseDateInput].forEach(el => {
-  el.addEventListener('input', drawFrame);
-  el.addEventListener('change', drawFrame);
+// ---------- Per-item label ----------
+labelNameInput.addEventListener('change', () => {
+  if (activeIndex === -1) return;
+  items[activeIndex].label = labelNameInput.value;
+  drawFrame();
 });
+
+// ---------- Global date (applies to every item) ----------
+releaseDateInput.addEventListener('input', drawFrame);
+releaseDateInput.addEventListener('change', drawFrame);
 
 // ---------- FFmpeg export ----------
 const CORE_SOURCES = [
@@ -863,88 +1104,142 @@ function getInlineWorkerURL() {
   return URL.createObjectURL(blob);
 }
 
+let ffmpegLoadPromise = null;
+
 async function ensureFFmpeg() {
   if (ffmpeg) return ffmpeg;
-  ffmpeg = new FFmpeg();
-  ffmpeg.on('log', ({ message }) => console.log('[ffmpeg]', message));
-  ffmpeg.on('progress', ({ progress }) => {
-    const pct = Math.min(100, Math.round(progress * 100));
-    progressFill.style.width = pct + '%';
-    progressLabel.textContent = `Rendering… ${pct}%`;
-  });
+  if (ffmpegLoadPromise) return ffmpegLoadPromise;
 
-  let lastErr = null;
-  for (const baseURL of CORE_SOURCES) {
-    try {
-      progressLabel.textContent = 'Loading ffmpeg…';
-      await ffmpeg.load({
-        coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
-        wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
-        classWorkerURL: getInlineWorkerURL()
-      });
-      return ffmpeg;
-    } catch (err) {
-      console.error('ffmpeg load failed from', baseURL, err);
-      lastErr = err;
+  ffmpegLoadPromise = (async () => {
+    ffmpeg = new FFmpeg();
+    ffmpeg.on('log', ({ message }) => console.log('[ffmpeg]', message));
+    ffmpeg.on('progress', ({ progress }) => {
+      const pct = Math.min(100, Math.round(progress * 100));
+      progressFill.style.width = pct + '%';
+      progressLabel.textContent = `Rendering… ${pct}%`;
+    });
+
+    let lastErr = null;
+    for (const baseURL of CORE_SOURCES) {
+      try {
+        progressLabel.textContent = 'Loading ffmpeg…';
+        await ffmpeg.load({
+          coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
+          wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
+          classWorkerURL: getInlineWorkerURL()
+        });
+        return ffmpeg;
+      } catch (err) {
+        console.error('ffmpeg load failed from', baseURL, err);
+        lastErr = err;
+      }
     }
+    ffmpeg = null; // allow a retry on a later call
+    throw new Error('Could not load ffmpeg core: ' + (lastErr?.message || lastErr));
+  })();
+
+  try {
+    return await ffmpegLoadPromise;
+  } finally {
+    ffmpegLoadPromise = null;
   }
-  throw new Error('Could not load ffmpeg core: ' + (lastErr?.message || lastErr));
 }
 
 exportBtn.addEventListener('click', async () => {
+  if (!items.length) return;
   exportBtn.disabled = true;
   successCard.style.display = 'none';
   progressWrap.style.display = 'flex';
   progressLabel.textContent = 'Loading ffmpeg…';
   progressFill.style.width = '0%';
 
+  const savedActiveIndex = activeIndex;
+
   try {
     const inst = await ensureFFmpeg();
+    const zip = new window.JSZip();
 
-    // Export current canvas frame as PNG
-    const frameBlob = await new Promise(res => canvas.toBlob(res, 'image/png'));
-    const frameData = await fetchFile(frameBlob);
-    await inst.writeFile('frame.png', frameData);
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      item.status = 'rendering';
+      renderQueue();
+      progressLabel.textContent = items.length > 1
+        ? `Rendering video ${i + 1} of ${items.length}…`
+        : 'Rendering…';
 
-    const audioData = await fetchFile(state.audioFile);
-    const audioExt = state.audioFile.name.split('.').pop() || 'mp3';
-    await inst.writeFile(`audio.${audioExt}`, audioData);
+      // Render this item's frame onto the shared canvas
+      paintFrame({
+        artist: item.artist?.trim(),
+        track: item.track?.trim(),
+        labelName: item.label,
+        dateISO: releaseDateInput.value,
+        img: item.artwork.img
+      });
 
-    const start = Math.max(0, parseFloat(startTimeInput.value) || 0);
-    const dur = Math.max(1, parseFloat(durationInput.value) || 30);
+      const frameBlob = await new Promise(res => canvas.toBlob(res, 'image/png'));
+      const frameData = await fetchFile(frameBlob);
+      await inst.writeFile('frame.png', frameData);
 
-    progressLabel.textContent = 'Rendering…';
+      const audioExt = item.audio.file.name.split('.').pop() || 'mp3';
+      const audioData = await fetchFile(item.audio.file);
+      await inst.writeFile(`audio.${audioExt}`, audioData);
 
-    const fadeLen = Math.min(0.4, dur / 4); // short fade, clamped for very short clips
+      const start = Math.max(0, item.start || 0);
+      const dur = Math.max(1, item.duration || 30);
+      const fadeLen = Math.min(0.4, dur / 4); // short fade, clamped for very short clips
 
-    await inst.exec([
-      '-loop', '1',
-      '-i', 'frame.png',
-      '-ss', String(start),
-      '-i', `audio.${audioExt}`,
-      '-t', String(dur),
-      '-af', `afade=t=in:st=0:d=${fadeLen},afade=t=out:st=${dur - fadeLen}:d=${fadeLen}`,
-      '-c:v', 'libx264',
-      '-tune', 'stillimage',
-      '-c:a', 'aac',
-      '-b:a', '192k',
-      '-pix_fmt', 'yuv420p',
-      '-shortest',
-      'output.mp4'
-    ]);
+      await inst.exec([
+        '-loop', '1',
+        '-i', 'frame.png',
+        '-ss', String(start),
+        '-i', `audio.${audioExt}`,
+        '-t', String(dur),
+        '-af', `afade=t=in:st=0:d=${fadeLen},afade=t=out:st=${dur - fadeLen}:d=${fadeLen}`,
+        '-c:v', 'libx264',
+        '-preset', 'ultrafast',
+        '-tune', 'stillimage',
+        '-c:a', 'aac',
+        '-b:a', '192k',
+        '-pix_fmt', 'yuv420p',
+        '-shortest',
+        'output.mp4'
+      ]);
 
-    const data = await inst.readFile('output.mp4');
-    const blob = new Blob([data.buffer], { type: 'video/mp4' });
-    outputUrl = URL.createObjectURL(blob);
+      const data = await inst.readFile('output.mp4');
+      const blob = new Blob([data.buffer], { type: 'video/mp4' });
 
-    resultVideo.src = outputUrl;
-    resultVideo.style.display = 'block';
-    canvas.style.display = 'none';
+      const artistName = (item.artist || 'Artist').trim() || 'Artist';
+      const trackName = (item.track || 'Track').trim() || 'Track';
+      const filename = `${artistName} - ${trackName} - Out Now.mp4`;
+
+      item.outputBlob = blob;
+      item.status = 'done';
+      zip.file(filename, blob);
+      renderQueue();
+
+      // Clean up ffmpeg's virtual FS between items
+      try { await inst.deleteFile('frame.png'); } catch {}
+      try { await inst.deleteFile(`audio.${audioExt}`); } catch {}
+      try { await inst.deleteFile('output.mp4'); } catch {}
+    }
+
+    progressLabel.textContent = 'Zipping…';
+    const zipBlob = await zip.generateAsync({ type: 'blob' });
+    outputUrl = URL.createObjectURL(zipBlob);
+    outputFilename = items.length > 1
+      ? `New Music Friday Batch (${items.length}).zip`
+      : `${(items[0].artist || 'Artist').trim() || 'Artist'} - ${(items[0].track || 'Track').trim() || 'Track'} - Out Now.zip`;
+    successMessage.textContent = items.length > 1 ? `${items.length} videos ready.` : 'Video ready.';
 
     progressWrap.style.display = 'none';
     successCard.style.display = 'flex';
+
+    // Restore the live preview to whichever item was active before export
+    if (savedActiveIndex !== -1) drawFrame();
   } catch (err) {
     console.error(err);
+    items.forEach(item => { if (item.status === 'rendering') item.status = 'error'; });
+    renderQueue();
     const msg = err?.message || 'unknown, check console.';
     if (msg.includes("origin 'null'") || location.protocol === 'file:') {
       progressLabel.textContent = 'This file must be served via http(s), not opened directly (file://). Run a local server or host it, then reload.';
@@ -960,9 +1255,7 @@ downloadBtn.addEventListener('click', () => {
   if (!outputUrl) return;
   const a = document.createElement('a');
   a.href = outputUrl;
-  const artist = artistNameInput.value.trim() || 'artist';
-  const track = trackTitleInput.value.trim() || 'track';
-  a.download = `${artist} - ${track} - Out Now.mp4`;
+  a.download = outputFilename || 'New Music Friday.zip';
   a.click();
 });
 
@@ -985,6 +1278,15 @@ function toISODate(d) {
 releaseDateInput.value = toISODate(getUpcomingFriday());
 
 drawFrame();
+
+// Quietly load ffmpeg in the background on page open, so it's usually
+// already ready by the time the person clicks "Generate video".
+ensureFFmpeg()
+  .then(() => { engineStatus.textContent = '✓ Video engine ready'; })
+  .catch(err => {
+    console.error('Background ffmpeg preload failed:', err);
+    engineStatus.textContent = 'Engine will load on first export';
+  });
 </script>
 
 </body>
