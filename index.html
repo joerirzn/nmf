@@ -5,92 +5,121 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>New Music Friday - Video Generator</title>
 <style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
+  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap');
+
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
   :root {
-    --bg: #0a0a0a;
-    --surface: #111111;
-    --border: #1e1e1e;
+    --bg:           #080808;
+    --surface:      #111111;
+    --border:       #1e1e1e;
     --border-hover: #2a2a2a;
-    --text: #ffffff;
-    --muted: #555;
-    --accent: #3c8fff;
-    --accent-glow: rgba(60, 143, 255, 0.10);
-    --success: #22c55e;
+    --muted:        #3a3a3a;
+    --text-dim:     #666666;
+    --text:         #d4d4d4;
+    --white:        #f0f0f0;
+    --accent:       #3c8fff;
+    --accent-glow:  rgba(60, 143, 255, 0.12);
+    --success:      #22c55e;
     --success-glow: rgba(34, 197, 94, 0.10);
+    --font:         'DM Sans', sans-serif;
+    --mono:         'DM Mono', monospace;
   }
 
-  html, body { height: 100%; }
+  html, body { height: 100%; -webkit-font-smoothing: antialiased; }
 
   body {
     background: var(--bg);
     color: var(--text);
-    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif;
-    min-height: 100vh;
+    font-family: var(--font);
+    height: 100vh;
+    overflow: hidden;
     display: flex;
     flex-direction: column;
-    padding: 32px 40px 40px;
   }
 
-  header {
+  /* ── App header ── */
+  .app-header {
+    padding: 14px 28px;
+    border-bottom: 1px solid var(--border);
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    margin-bottom: 32px;
-    flex-wrap: wrap;
     gap: 16px;
+    flex-shrink: 0;
+    background: var(--surface);
+    flex-wrap: wrap;
   }
 
-  h1 {
-    font-size: 26px;
-    font-weight: 700;
-    letter-spacing: -0.03em;
-    line-height: 1.1;
+  .header-eyebrow {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--accent);
   }
 
-  .specs { display: flex; gap: 6px; align-items: center; }
+  .app-header h1 {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--white);
+    letter-spacing: -0.01em;
+  }
+
+  .header-spacer { flex: 1; }
+
+  .specs { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 
   .spec-tag {
-    font-size: 11px;
+    font-family: var(--mono);
+    font-size: 10px;
     font-weight: 500;
-    letter-spacing: 0.08em;
+    letter-spacing: 0.06em;
     text-transform: uppercase;
-    color: var(--muted);
-    background: var(--surface);
+    color: var(--text-dim);
+    background: var(--bg);
     border: 1px solid var(--border);
     padding: 4px 10px;
     border-radius: 20px;
   }
 
-  .main {
+  /* ── Layout ── */
+  .layout {
     display: grid;
     grid-template-columns: 1fr 380px;
-    gap: 20px;
+    gap: 16px;
     flex: 1;
     min-height: 0;
-    align-items: start;
+    padding: 16px 28px;
   }
 
+  /* ── Preview area ── */
   .preview-area {
     width: 100%;
-    border-radius: 16px;
+    height: 100%;
+    min-height: 0;
+    border-radius: 12px;
     background: var(--surface);
-    border: 1.5px solid var(--border);
+    border: 1px solid var(--border);
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 32px;
-    min-height: 860px;
+    padding: 20px;
+    overflow: hidden;
   }
 
   .preview-stage {
     position: relative;
-    width: 480px;
+    aspect-ratio: 1080 / 1440;
+    height: 100%;
+    max-height: 100%;
+    width: auto;
     max-width: 100%;
   }
 
   canvas#previewCanvas {
     width: 100%;
+    height: 100%;
+    object-fit: contain;
     border-radius: 4px;
     display: block;
     background: #000;
@@ -98,71 +127,89 @@
 
   video#resultVideo {
     width: 100%;
+    height: 100%;
+    object-fit: contain;
     border-radius: 4px;
     display: none;
   }
 
+  /* ── Sidebar ── */
   .sidebar {
-    background: var(--surface);
-    border: 1.5px solid var(--border);
-    border-radius: 16px;
-    padding: 24px;
     display: flex;
     flex-direction: column;
-    gap: 22px;
+    gap: 10px;
+    height: 100%;
+    min-height: 0;
     overflow-y: auto;
-    max-height: calc(100vh - 130px);
+    padding-right: 2px;
   }
 
-  .sb-section { display: flex; flex-direction: column; gap: 10px; }
+  .sidebar::-webkit-scrollbar { width: 6px; }
+  .sidebar::-webkit-scrollbar-track { background: transparent; }
+  .sidebar::-webkit-scrollbar-thumb { background: var(--border-hover); border-radius: 4px; }
 
-  .section-label {
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 0.08em;
+  /* ── Panel ── */
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+
+  .panel-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.1em;
     text-transform: uppercase;
-    color: var(--muted);
+    color: var(--text-dim);
   }
 
-  .upload-zone {
-    border: 1.5px dashed var(--border);
+  /* ── Drop / upload zone ── */
+  .drop-zone {
+    border: 1.5px dashed var(--border-hover);
     border-radius: 10px;
     padding: 18px;
     text-align: center;
     cursor: pointer;
-    transition: 0.15s;
+    transition: border-color 0.2s, background 0.2s, color 0.2s;
     font-size: 13px;
-    color: var(--muted);
+    color: var(--text-dim);
+    background: var(--bg);
   }
 
-  .upload-zone:hover {
+  .drop-zone:hover, .drop-zone.drag-over {
     border-color: var(--accent);
     background: var(--accent-glow);
     color: var(--text);
   }
 
-  .upload-zone.filled {
+  .drop-zone.filled {
     border-style: solid;
     border-color: var(--border-hover);
-    color: var(--text);
+    color: var(--white);
   }
 
   .field { display: flex; flex-direction: column; gap: 6px; }
 
   label {
     font-size: 12px;
-    color: var(--muted);
+    color: var(--text-dim);
     font-weight: 500;
   }
 
   input[type="text"], input[type="number"], input[type="date"], select {
-    background: #0d0d0d;
+    background: var(--bg);
     border: 1px solid var(--border);
     color: var(--text);
     padding: 9px 11px;
     border-radius: 8px;
     font-size: 13px;
-    font-family: inherit;
+    font-family: var(--font);
     outline: none;
     transition: 0.15s;
   }
@@ -178,20 +225,16 @@
 
   .row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 
-  .hint { font-size: 11px; color: var(--muted); line-height: 1.4; }
-
-  audio { width: 100%; height: 32px; margin-top: 4px; }
-
-  #waveformWrap { display: flex; flex-direction: column; }
-
-  #waveform {
-    background: #0d0d0d;
+  .hint { font-size: 11px; color: var(--text-dim); line-height: 1.5; }
+  .hint code {
+    font-family: var(--mono);
+    background: var(--bg);
     border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 8px 10px;
-    overflow-x: auto;
+    padding: 1px 5px;
+    border-radius: 4px;
   }
 
+  /* ── Buttons ── */
   .btn {
     background: var(--accent);
     color: #fff;
@@ -202,7 +245,7 @@
     font-weight: 600;
     cursor: pointer;
     transition: 0.15s;
-    font-family: inherit;
+    font-family: var(--font);
   }
 
   .btn:hover { opacity: 0.88; }
@@ -217,12 +260,13 @@
     font-size: 13px;
     font-weight: 600;
     cursor: pointer;
-    font-family: inherit;
+    font-family: var(--font);
     transition: 0.15s;
   }
 
-  .btn-ghost:hover { border-color: var(--border-hover); background: var(--surface); }
+  .btn-ghost:hover { border-color: var(--border-hover); background: var(--bg); }
 
+  /* ── Progress / success ── */
   .progress-wrap {
     display: none;
     flex-direction: column;
@@ -243,7 +287,7 @@
     transition: width 0.2s;
   }
 
-  .progress-label { font-size: 12px; color: var(--muted); }
+  .progress-label { font-size: 12px; color: var(--text-dim); }
 
   .success-card {
     display: none;
@@ -257,59 +301,38 @@
   }
 
   .info-card {
-    background: #0d0d0d;
+    background: var(--bg);
     border: 1px solid var(--border);
     border-radius: 10px;
     padding: 12px 14px;
     font-size: 12px;
-    color: var(--muted);
+    color: var(--text-dim);
     line-height: 1.5;
   }
 
-  .audio-bar {
-    margin-top: 20px;
-    background: var(--surface);
-    border: 1.5px solid var(--border);
-    border-radius: 16px;
-    padding: 20px 24px;
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
+  /* ── Audio panel (waveform) ── */
+  #waveformWrap { display: flex; flex-direction: column; }
+
+  #waveform {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 10px;
+    overflow-x: auto;
   }
 
-  .audio-bar-header {
-    display: flex;
-    align-items: center;
-    gap: 16px;
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: 1fr; padding: 16px; }
+    .app-header { padding: 16px; }
   }
-
-  .audio-bar-header .section-label { white-space: nowrap; }
-
-  .audio-bar-header .upload-zone {
-    flex: 1;
-    padding: 10px 16px;
-  }
-
-  .audio-bar-controls {
-    display: flex;
-    align-items: flex-end;
-    gap: 16px;
-  }
-
-  .audio-bar-controls .btn-ghost {
-    white-space: nowrap;
-    margin-bottom: 1px;
-  }
-
-  .audio-bar-controls .field { flex: 0 0 140px; }
 </style>
 </head>
 <body>
 
-<header>
-  <div>
-    <h1>New Music Friday - Video Generator</h1>
-  </div>
+<header class="app-header">
+  <span class="header-eyebrow">Video Tool</span>
+  <h1>New Music Friday — Video Generator</h1>
+  <div class="header-spacer"></div>
   <div class="specs">
     <span class="spec-tag">1080 × 1440</span>
     <span class="spec-tag">MP4</span>
@@ -317,7 +340,7 @@
   </div>
 </header>
 
-<div class="main">
+<div class="layout">
   <div class="preview-area">
     <div class="preview-stage">
       <canvas id="previewCanvas" width="1080" height="1440"></canvas>
@@ -327,14 +350,14 @@
 
   <div class="sidebar">
 
-    <div class="sb-section">
-      <div class="section-label">Artwork</div>
-      <div class="upload-zone" id="artworkZone">Drop or click to upload cover (square crop applied automatically)</div>
+    <div class="panel">
+      <div class="panel-label">Artwork</div>
+      <div class="drop-zone" id="artworkZone">Drop or click to upload cover (square crop applied automatically)</div>
       <input type="file" id="artworkUpload" accept="image/*" style="display:none">
     </div>
 
-    <div class="sb-section">
-      <div class="section-label">Release info</div>
+    <div class="panel">
+      <div class="panel-label">Release info</div>
       <div class="field">
         <label>Artist name</label>
         <input type="text" id="artistName" placeholder="Artist Name">
@@ -346,7 +369,7 @@
       <div class="hint">Automatically filled from the artwork filename (<code>Artist Name - Track Title.jpg</code>) — still editable.</div>
     </div>
 
-    <div class="sb-section">
+    <div class="panel">
       <div class="row-2">
         <div class="field">
           <label>Label name</label>
@@ -363,7 +386,31 @@
       </div>
     </div>
 
-    <div class="sb-section">
+    <div class="panel">
+      <div class="panel-label">Audio snippet</div>
+      <div class="drop-zone" id="audioZone">Drop or click to upload audio</div>
+      <input type="file" id="audioUpload" accept="audio/*" style="display:none">
+
+      <div id="waveformWrap" style="display:none">
+        <div id="waveform"></div>
+      </div>
+
+      <button class="btn-ghost" id="playPauseBtn" type="button">▶ Preview selection</button>
+
+      <div class="row-2">
+        <div class="field">
+          <label>Start (sec)</label>
+          <input type="number" id="startTime" value="0" min="0" step="1">
+        </div>
+        <div class="field">
+          <label>Duration (sec)</label>
+          <input type="number" id="duration" value="30" min="1" step="1">
+        </div>
+      </div>
+      <div class="hint">Drag the highlighted region on the waveform to pick the snippet — the fields above update automatically, and you can also type exact values.</div>
+    </div>
+
+    <div class="panel">
       <button class="btn" id="exportBtn" disabled>Generate video</button>
       <div class="progress-wrap" id="progressWrap">
         <div class="progress-bar-bg"><div class="progress-bar-fill" id="progressFill"></div></div>
@@ -380,30 +427,6 @@
   </div>
 </div>
 
-<div class="audio-bar">
-  <div class="audio-bar-header">
-    <div class="section-label">Audio snippet</div>
-    <div class="upload-zone" id="audioZone">Drop or click to upload audio</div>
-    <input type="file" id="audioUpload" accept="audio/*" style="display:none">
-  </div>
-
-  <div id="waveformWrap" style="display:none">
-    <div id="waveform"></div>
-  </div>
-
-  <div class="audio-bar-controls">
-    <button class="btn-ghost" id="playPauseBtn" type="button">▶ Preview selection</button>
-    <div class="field">
-      <label>Start (sec)</label>
-      <input type="number" id="startTime" value="0" min="0" step="1">
-    </div>
-    <div class="field">
-      <label>Duration (sec)</label>
-      <input type="number" id="duration" value="30" min="1" step="1">
-    </div>
-  </div>
-  <div class="hint">Drag the highlighted region on the waveform to pick the snippet — the fields above update automatically, and you can also type exact values.</div>
-</div>
 
 <script type="module">
 import { FFmpeg } from 'https://unpkg.com/@ffmpeg/ffmpeg@0.12.15/dist/esm/index.js';
