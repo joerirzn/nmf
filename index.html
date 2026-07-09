@@ -426,16 +426,10 @@
   <div class="sidebar">
 
     <div class="panel">
-      <div class="panel-label">Artwork <span id="artworkCount" class="count-badge"></span></div>
-      <div class="drop-zone" id="artworkZone">Drop or click to upload cover(s) — multiple supported (square crop applied automatically)</div>
-      <input type="file" id="artworkUpload" accept="image/*" multiple style="display:none">
-    </div>
-
-    <div class="panel">
-      <div class="panel-label">Audio snippet <span id="audioCount" class="count-badge"></span></div>
-      <div class="drop-zone" id="audioZone">Drop or click to upload audio — multiple supported</div>
-      <input type="file" id="audioUpload" accept="audio/*" multiple style="display:none">
-      <div class="hint">Files are paired by upload order: 1st artwork + 1st audio, 2nd + 2nd, etc.</div>
+      <div class="panel-label">Upload <span id="uploadCount" class="count-badge"></span></div>
+      <div class="drop-zone" id="mediaZone">Drop artwork + audio here — multiple files supported (square crop applied automatically)</div>
+      <input type="file" id="mediaUpload" accept="image/*,audio/*" multiple style="display:none">
+      <div class="hint">Mix artwork and audio in one drop — they're matched automatically by filename (falls back to upload order if a name doesn't clearly match).</div>
     </div>
 
     <div class="panel" id="queuePanel" style="display:none">
@@ -470,6 +464,7 @@
         <div id="waveform"></div>
       </div>
       <button class="btn-ghost" id="playPauseBtn" type="button">▶ Preview selection</button>
+      <button class="btn-ghost" id="detectDropBtn" type="button">🎯 Auto-detect drop</button>
       <div class="row-2">
         <div class="field">
           <label>Start (sec)</label>
@@ -480,7 +475,7 @@
           <input type="number" id="duration" value="30" min="1" step="1">
         </div>
       </div>
-      <div class="hint">Drag the highlighted region on the waveform to pick this item's snippet.</div>
+      <div class="hint">Drag the highlighted region on the waveform to pick this item's snippet, or use auto-detect to jump 5s before the loudest section in the first minute.</div>
     </div>
 
     <div class="panel">
@@ -518,23 +513,19 @@ import WaveSurfer from 'https://unpkg.com/wavesurfer.js@7.12.10/dist/wavesurfer.
 import RegionsPlugin from 'https://unpkg.com/wavesurfer.js@7.12.10/dist/plugins/regions.esm.js';
 
 // ---------- Batch state ----------
-// rawArtworks / rawAudios grow as files are added; items are derived pairs
-// (by upload order) that preserve per-item edits across re-uploads.
-let rawArtworks = []; // { file, img }
-let rawAudios = [];   // { file }
-let items = [];        // { artwork, audio, artist, track, start, duration, audioDuration, status, outputBlob }
+// items = matched (artwork, audio) pairs with full per-item edit state.
+// pendingArtworks/pendingAudios (declared below, near the matching logic)
+// hold uploaded files not yet paired into an item.
+let items = [];
 let activeIndex = -1;
 
 const canvas = document.getElementById('previewCanvas');
 const ctx = canvas.getContext('2d');
 const resultVideo = document.getElementById('resultVideo');
 
-const artworkZone = document.getElementById('artworkZone');
-const artworkUpload = document.getElementById('artworkUpload');
-const artworkCountEl = document.getElementById('artworkCount');
-const audioZone = document.getElementById('audioZone');
-const audioUpload = document.getElementById('audioUpload');
-const audioCountEl = document.getElementById('audioCount');
+const mediaZone = document.getElementById('mediaZone');
+const mediaUpload = document.getElementById('mediaUpload');
+const uploadCountEl = document.getElementById('uploadCount');
 
 const queuePanel = document.getElementById('queuePanel');
 const queueList = document.getElementById('queueList');
@@ -545,6 +536,7 @@ const editPanel = document.getElementById('editPanel');
 const editingLabel = document.getElementById('editingLabel');
 const waveformWrap = document.getElementById('waveformWrap');
 const playPauseBtn = document.getElementById('playPauseBtn');
+const detectDropBtn = document.getElementById('detectDropBtn');
 
 const artistNameInput = document.getElementById('artistName');
 const trackTitleInput = document.getElementById('trackTitle');
@@ -565,7 +557,7 @@ const engineStatus = document.getElementById('engineStatus');
 let ffmpeg = null;
 let wavesurfer = null;
 let wsRegions = null;
-let activeRegion = null;
+let clipRegion = null;
 let outputUrl = null;
 let outputFilename = '';
 
@@ -733,29 +725,98 @@ function parseFilename(filename) {
   return null;
 }
 
-// ---------- Pairing: rebuild items whenever artwork/audio lists change ----------
-function rebuildItems() {
-  const pairCount = Math.min(rawArtworks.length, rawAudios.length);
+// ---------- Name-based matching ----------
+// Normalizes a filename/string for fuzzy comparison: lowercase, strip the
+// extension, collapse anything non-alphanumeric into single spaces.
+function normalizeForMatch(str) {
+  return (str || '')
+    .toLowerCase()
+    .replace(/\.[^/.]+$/, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 
-  for (let i = items.length; i < pairCount; i++) {
-    const parsed = parseFilename(rawArtworks[i].file.name);
-    items.push({
-      artwork: rawArtworks[i],
-      audio: rawAudios[i],
-      artist: parsed?.artist || '',
-      track: parsed?.title || '',
-      label: "Spinnin' Records",
-      start: 0,
-      duration: 30,
-      audioDuration: null,
-      status: 'pending',
-      outputBlob: null
+// Scores how likely an audio filename belongs to a given artwork's
+// artist/track. Track-title substring match counts most (most distinctive),
+// artist substring match next, plus a small bonus per shared word.
+function matchScore(artworkArtist, artworkTrack, audioFilename) {
+  const audioNorm = normalizeForMatch(audioFilename);
+  const artistNorm = normalizeForMatch(artworkArtist);
+  const trackNorm = normalizeForMatch(artworkTrack);
+  if (!audioNorm || (!artistNorm && !trackNorm)) return 0;
+
+  let score = 0;
+  if (trackNorm && audioNorm.includes(trackNorm)) score += 3;
+  if (artistNorm && audioNorm.includes(artistNorm)) score += 2;
+
+  const audioWords = new Set(audioNorm.split(' ').filter(Boolean));
+  const targetWords = new Set(`${artistNorm} ${trackNorm}`.split(' ').filter(Boolean));
+  let overlap = 0;
+  targetWords.forEach(w => { if (w.length > 1 && audioWords.has(w)) overlap++; });
+  score += overlap * 0.5;
+
+  return score;
+}
+
+const MATCH_THRESHOLD = 3;
+
+// Pending files not yet paired into an item. Only these participate in
+// (re-)matching — already-created items (with their edits) are never touched.
+let pendingArtworks = []; // { file, img, artist, track }
+let pendingAudios = [];   // { file }
+let totalArtworkUploaded = 0;
+let totalAudioUploaded = 0;
+
+function createItem(artwork, audio, matchMethod) {
+  items.push({
+    artwork,
+    audio,
+    artist: artwork.artist || '',
+    track: artwork.track || '',
+    label: "Spinnin' Records",
+    start: 0,
+    duration: 30,
+    dropApplied: false,
+    audioDuration: null,
+    status: 'pending',
+    matchMethod,
+    outputBlob: null
+  });
+}
+
+// Tries to pair pending artworks with pending audios: first by confident
+// filename matching, then by upload order for whatever's left over.
+function runMatching() {
+  for (const art of [...pendingArtworks]) {
+    if (!pendingAudios.length) break;
+    let bestIdx = -1;
+    let bestScore = 0;
+    pendingAudios.forEach((aud, idx) => {
+      const score = matchScore(art.artist, art.track, aud.file.name);
+      if (score > bestScore) { bestScore = score; bestIdx = idx; }
     });
+    if (bestIdx !== -1 && bestScore >= MATCH_THRESHOLD) {
+      const aud = pendingAudios.splice(bestIdx, 1)[0];
+      pendingArtworks.splice(pendingArtworks.indexOf(art), 1);
+      createItem(art, aud, 'matched');
+    }
   }
-  if (items.length > pairCount) items.length = pairCount;
 
-  artworkCountEl.textContent = rawArtworks.length ? `(${rawArtworks.length})` : '';
-  audioCountEl.textContent = rawAudios.length ? `(${rawAudios.length})` : '';
+  while (pendingArtworks.length && pendingAudios.length) {
+    const art = pendingArtworks.shift();
+    const aud = pendingAudios.shift();
+    createItem(art, aud, 'order');
+  }
+
+  finishUpdate();
+}
+
+function finishUpdate() {
+  const parts = [];
+  if (totalArtworkUploaded) parts.push(`${totalArtworkUploaded} artwork${totalArtworkUploaded !== 1 ? 's' : ''}`);
+  if (totalAudioUploaded) parts.push(`${totalAudioUploaded} audio`);
+  uploadCountEl.textContent = parts.length ? `(${parts.join(', ')})` : '';
   queueCountEl.textContent = items.length ? `(${items.length})` : '';
 
   queuePanel.style.display = items.length ? 'flex' : 'none';
@@ -764,7 +825,7 @@ function rebuildItems() {
   if (items.length === 0) {
     activeIndex = -1;
     waveformWrap.style.display = 'none';
-    if (wavesurfer) { wavesurfer.destroy(); wavesurfer = null; wsRegions = null; activeRegion = null; }
+    if (wavesurfer) { wavesurfer.destroy(); wavesurfer = null; wsRegions = null; clipRegion = null; }
   } else if (activeIndex === -1) {
     setActive(items.length - 1);
   } else if (activeIndex >= items.length) {
@@ -811,7 +872,8 @@ function renderQueue() {
 
     const sub = document.createElement('div');
     sub.className = 'queue-item-sub';
-    sub.textContent = item.audio.file.name;
+    const matchTag = item.matchMethod === 'matched' ? ' · matched by name' : '';
+    sub.textContent = item.audio.file.name + matchTag;
 
     info.appendChild(title);
     info.appendChild(sub);
@@ -829,11 +891,13 @@ function renderQueue() {
   });
 }
 
-// ---------- Artwork upload (multi-file) ----------
+// ---------- File intake: classify mixed drops by type, then match ----------
 function addArtworkFiles(fileList) {
   Array.from(fileList).forEach(file => {
-    const entry = { file, img: null };
-    rawArtworks.push(entry);
+    const parsed = parseFilename(file.name);
+    const entry = { file, img: null, artist: parsed?.artist || '', track: parsed?.title || '' };
+    pendingArtworks.push(entry);
+    totalArtworkUploaded++;
     const img = new Image();
     img.onload = () => {
       entry.img = img;
@@ -842,56 +906,136 @@ function addArtworkFiles(fileList) {
     };
     img.src = URL.createObjectURL(file);
   });
-  artworkZone.textContent = `${rawArtworks.length} artwork${rawArtworks.length !== 1 ? 's' : ''} uploaded`;
-  artworkZone.classList.add('filled');
-  rebuildItems();
 }
 
-artworkZone.addEventListener('click', () => artworkUpload.click());
-artworkUpload.addEventListener('change', e => {
-  if (e.target.files.length) addArtworkFiles(e.target.files);
-});
-artworkZone.addEventListener('dragover', e => e.preventDefault());
-artworkZone.addEventListener('drop', e => {
-  e.preventDefault();
-  if (e.dataTransfer.files.length) addArtworkFiles(e.dataTransfer.files);
-});
-
-// ---------- Audio upload (multi-file) ----------
 function addAudioFiles(fileList) {
-  Array.from(fileList).forEach(file => rawAudios.push({ file }));
-  audioZone.textContent = `${rawAudios.length} audio file${rawAudios.length !== 1 ? 's' : ''} uploaded`;
-  audioZone.classList.add('filled');
-  rebuildItems();
+  Array.from(fileList).forEach(file => {
+    pendingAudios.push({ file });
+    totalAudioUploaded++;
+  });
 }
 
-audioZone.addEventListener('click', () => audioUpload.click());
-audioUpload.addEventListener('change', e => {
-  if (e.target.files.length) addAudioFiles(e.target.files);
+// Reflects total uploaded counts in the drop zone's own label.
+function updateMediaZoneText() {
+  if (!totalArtworkUploaded && !totalAudioUploaded) {
+    mediaZone.textContent = 'Drop artwork + audio here — multiple files supported (square crop applied automatically)';
+    mediaZone.classList.remove('filled');
+    return;
+  }
+  const parts = [];
+  if (totalArtworkUploaded) parts.push(`${totalArtworkUploaded} artwork${totalArtworkUploaded !== 1 ? 's' : ''}`);
+  if (totalAudioUploaded) parts.push(`${totalAudioUploaded} audio file${totalAudioUploaded !== 1 ? 's' : ''}`);
+  mediaZone.textContent = `${parts.join(' + ')} uploaded`;
+  mediaZone.classList.add('filled');
+}
+
+// Splits a mixed file drop (artwork + audio together) by MIME type, adds
+// each to the right pool, then runs matching once for the whole batch.
+function classifyAndAddFiles(fileList) {
+  const imageFiles = [];
+  const audioFiles = [];
+  Array.from(fileList).forEach(file => {
+    if (file.type.startsWith('image/')) imageFiles.push(file);
+    else if (file.type.startsWith('audio/')) audioFiles.push(file);
+  });
+  if (imageFiles.length) addArtworkFiles(imageFiles);
+  if (audioFiles.length) addAudioFiles(audioFiles);
+  updateMediaZoneText();
+  if (imageFiles.length || audioFiles.length) runMatching();
+}
+
+mediaZone.addEventListener('click', () => mediaUpload.click());
+mediaUpload.addEventListener('change', e => {
+  if (e.target.files.length) classifyAndAddFiles(e.target.files);
+  mediaUpload.value = '';
 });
-audioZone.addEventListener('dragover', e => e.preventDefault());
-audioZone.addEventListener('drop', e => {
+mediaZone.addEventListener('dragover', e => {
   e.preventDefault();
-  if (e.dataTransfer.files.length) addAudioFiles(e.dataTransfer.files);
+  mediaZone.classList.add('drag-over');
+});
+mediaZone.addEventListener('dragleave', () => mediaZone.classList.remove('drag-over'));
+mediaZone.addEventListener('drop', e => {
+  e.preventDefault();
+  mediaZone.classList.remove('drag-over');
+  if (e.dataTransfer.files.length) classifyAndAddFiles(e.dataTransfer.files);
 });
 
 // ---------- Clear batch ----------
 clearQueueBtn.addEventListener('click', () => {
-  rawArtworks = [];
-  rawAudios = [];
+  pendingArtworks = [];
+  pendingAudios = [];
   items = [];
   activeIndex = -1;
+  totalArtworkUploaded = 0;
+  totalAudioUploaded = 0;
 
-  artworkZone.textContent = 'Drop or click to upload cover(s) — multiple supported (square crop applied automatically)';
-  artworkZone.classList.remove('filled');
-  audioZone.textContent = 'Drop or click to upload audio — multiple supported';
-  audioZone.classList.remove('filled');
-  artworkUpload.value = '';
-  audioUpload.value = '';
+  updateMediaZoneText();
+  mediaUpload.value = '';
   artistNameInput.value = '';
   trackTitleInput.value = '';
 
-  rebuildItems();
+  finishUpdate();
+});
+
+// ---------- Drop detection ----------
+// Scans the decoded audio for the loudest sustained section (RMS energy
+// over short windows) — a reasonable proxy for "the drop" — and returns a
+// start time `leadIn` seconds before it.
+function computeDropStart(audioBuffer, leadIn = 5, scanFromSec = 0, scanUntilSec = 60) {
+  const sampleRate = audioBuffer.sampleRate;
+  const channelData = audioBuffer.getChannelData(0);
+  const windowSize = Math.max(1, Math.floor(0.75 * sampleRate));
+  const hopSize = Math.max(1, Math.floor(0.25 * sampleRate));
+
+  // Only scan the given [scanFromSec, scanUntilSec] range — the best drop
+  // is usually early, and scanning the whole track (or the wrong section)
+  // can pick up a louder outro or final chorus instead.
+  const scanStart = Math.max(0, Math.min(Math.floor(scanFromSec * sampleRate), channelData.length));
+  const scanEnd = Math.max(scanStart, Math.min(Math.floor(scanUntilSec * sampleRate), channelData.length));
+
+  let maxRms = -1;
+  let maxIndex = scanStart;
+
+  for (let i = scanStart; i + windowSize <= scanEnd; i += hopSize) {
+    let sumSquares = 0;
+    for (let j = i; j < i + windowSize; j++) {
+      const s = channelData[j];
+      sumSquares += s * s;
+    }
+    const rms = sumSquares / windowSize;
+    if (rms > maxRms) {
+      maxRms = rms;
+      maxIndex = i;
+    }
+  }
+
+  const dropTime = maxIndex / sampleRate;
+  const clampedMax = Math.max(0, audioBuffer.duration - 1);
+  return Math.min(Math.max(0, dropTime - leadIn), clampedMax);
+}
+
+// Applies drop detection to the given item, moving its region + fields.
+function applyDropDetection(item) {
+  if (!wavesurfer) return;
+  const buffer = wavesurfer.getDecodedData();
+  if (!buffer) return;
+
+  const newStart = computeDropStart(buffer, 5, 0, 60);
+  const dur = Math.max(1, item.duration || 30);
+  const end = Math.min(buffer.duration, newStart + dur);
+
+  item.start = newStart;
+  item.duration = end - newStart;
+  item.dropApplied = true;
+
+  if (clipRegion) clipRegion.setOptions({ start: newStart, end });
+  startTimeInput.value = Math.round(newStart * 10) / 10;
+  durationInput.value = Math.round((end - newStart) * 10) / 10;
+}
+
+detectDropBtn.addEventListener('click', () => {
+  if (activeIndex === -1) return;
+  applyDropDetection(items[activeIndex]);
 });
 
 // ---------- Waveform for the active item ----------
@@ -903,7 +1047,7 @@ function loadAudioForItem(item) {
     wavesurfer.destroy();
     wavesurfer = null;
     wsRegions = null;
-    activeRegion = null;
+    clipRegion = null;
   }
 
   wsRegions = RegionsPlugin.create();
@@ -923,11 +1067,24 @@ function loadAudioForItem(item) {
   wavesurfer.on('decode', () => {
     const audioDuration = wavesurfer.getDuration();
     item.audioDuration = audioDuration;
-    const start = Math.min(Math.max(0, item.start || 0), Math.max(0, audioDuration - 1));
-    const dur = Math.max(1, item.duration || 30);
-    const end = Math.min(audioDuration, start + dur);
 
-    activeRegion = wsRegions.addRegion({
+    let start = Math.min(Math.max(0, item.start || 0), Math.max(0, audioDuration - 1));
+    const dur = Math.max(1, item.duration || 30);
+
+    // First time this item's audio is decoded: auto-jump to 5s before the
+    // loudest section in the first minute. Later re-visits keep whatever
+    // the user set.
+    if (!item.dropApplied) {
+      const buffer = wavesurfer.getDecodedData();
+      if (buffer) start = computeDropStart(buffer, 5, 0, 60);
+      item.dropApplied = true;
+    }
+
+    const end = Math.min(audioDuration, start + dur);
+    item.start = start;
+    item.duration = end - start;
+
+    clipRegion = wsRegions.addRegion({
       start,
       end,
       color: 'rgba(60, 143, 255, 0.25)',
@@ -935,10 +1092,8 @@ function loadAudioForItem(item) {
       resize: true
     });
 
-    startTimeInput.value = Math.round(activeRegion.start);
-    durationInput.value = Math.round(activeRegion.end - activeRegion.start);
-    item.start = activeRegion.start;
-    item.duration = activeRegion.end - activeRegion.start;
+    startTimeInput.value = Math.round(clipRegion.start * 10) / 10;
+    durationInput.value = Math.round((clipRegion.end - clipRegion.start) * 10) / 10;
   });
 
   wsRegions.on('region-updated', region => {
@@ -949,12 +1104,12 @@ function loadAudioForItem(item) {
   });
 
   playPauseBtn.onclick = () => {
-    if (!activeRegion) return;
+    if (!clipRegion) return;
     if (wavesurfer.isPlaying()) {
       wavesurfer.pause();
       playPauseBtn.textContent = '▶ Preview selection';
     } else {
-      activeRegion.play();
+      clipRegion.play();
       playPauseBtn.textContent = '⏸ Pause';
     }
   };
@@ -962,13 +1117,13 @@ function loadAudioForItem(item) {
   wavesurfer.on('finish', () => { playPauseBtn.textContent = '▶ Preview selection'; });
 }
 
-// Manual start/duration typing → move/resize the region, and store on the item
+// Manual start/duration typing → move/resize the clip region, and store on the item
 function syncRegionFromInputs() {
-  if (!activeRegion || activeIndex === -1) return;
+  if (!clipRegion || activeIndex === -1) return;
   const item = items[activeIndex];
   const start = Math.max(0, parseFloat(startTimeInput.value) || 0);
   const dur = Math.max(1, parseFloat(durationInput.value) || 30);
-  activeRegion.setOptions({ start, end: start + dur });
+  clipRegion.setOptions({ start, end: start + dur });
   item.start = start;
   item.duration = dur;
 }
